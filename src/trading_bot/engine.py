@@ -159,22 +159,32 @@ def run() -> None:
         # ── 每5分钟清理孤儿条件单 ──
         if loop_count % 600 == 0:
             try:
-                from trading_bot.exchange.gateway import ExchangeGateway
-                _gw = ExchangeGateway()
-                algo_orders = _gw._call("GET", _gw._fapi_v1, "openAlgoOrders", {})
-                # Fetch positions separately to get symbols
-                positions_result = _gw._call("GET", _gw._fapi_v2, "positionRisk", {})
-                pos_symbols = {p["symbol"] for p in (positions_result or []) if abs(float(p.get("positionAmt", 0))) > 0}
+                import os, requests, hmac, hashlib, time as _t
+                k = os.environ['BINANCE_API_KEY']; s = os.environ['BINANCE_API_SECRET']
+                ts = int(_t.time()*1e3)
+                q = f'timestamp={ts}'
+                sig = hmac.new(s.encode(), q.encode(), hashlib.sha256).hexdigest()
+                hdr = {'X-MBX-APIKEY': k}
+                base = 'https://fapi.binance.com'
+                algo = requests.get(f'{base}/fapi/v1/openAlgoOrders?{q}&signature={sig}', headers=hdr, timeout=10).json()
+                pos = requests.get(f'{base}/fapi/v2/positionRisk?{q}&signature={sig}', headers=hdr, timeout=10).json()
+                pos_syms = {p['symbol'] for p in pos if abs(float(p.get('positionAmt', 0))) > 0}
                 cancelled = 0
-                for a in (algo_orders or []):
-                    if a.get("symbol") not in pos_symbols:
-                        _gw._call("DELETE", _gw._fapi_v1, "algoOrder", {"symbol": a["symbol"], "algoId": a["algoId"]})
-                        logger.info(f"🧹 清理孤儿条件单: {a['symbol']} {a.get('orderType','')} id={a['algoId']}")
-                        cancelled += 1
+                for a in (algo if isinstance(algo, list) else []):
+                    sym = a.get('symbol', '')
+                    if sym not in pos_syms:
+                        aid = a.get('algoId', 0)
+                        q2 = f'symbol={sym}&algoId={aid}&timestamp={int(_t.time()*1e3)}'
+                        sig2 = hmac.new(s.encode(), q2.encode(), hashlib.sha256).hexdigest()
+                        r = requests.delete(f'{base}/fapi/v1/algoOrder?{q2}&signature={sig2}', headers=hdr, timeout=10)
+                        if r.status_code == 200:
+                            logger.info(f'🧹 orphan: {sym} {a.get("orderType","")} id={aid}')
+                            cancelled += 1
+                        _t.sleep(0.1)  # rate limit
                 if cancelled:
-                    logger.info(f"🧹 清理完成: {cancelled}个孤儿条件单")
+                    logger.info(f'🧹 清理完成: {cancelled} orphan(s)')
             except Exception as e:
-                logger.warning(f"🧹 孤儿清理异常: {e}")
+                logger.warning(f'🧹 orphan cleanup error: {e}')
 
         time.sleep(0.5)
 

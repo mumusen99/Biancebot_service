@@ -704,6 +704,12 @@ def scan_signals() -> tuple:
             if long_allowed and short_allowed:
                 side = 'LONG' if bias >= 0 else 'SHORT'
 
+            # ─── 强单边禁止反向 ───
+            if side == 'LONG' and bias <= -4:
+                return None
+            if side == 'SHORT' and bias >= 4:
+                return None
+
             # BTC方向偏置：同向正常，反向降低风险
             btc_align = (side == 'LONG' and bias >= 0) or (side == 'SHORT' and bias <= 0)
             direction_risk_factor = 1.0 if btc_align else 0.6
