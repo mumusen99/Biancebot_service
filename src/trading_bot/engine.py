@@ -89,7 +89,7 @@ def run() -> None:
             from trading_bot.integrations.notifications import notify_exit
             from trading_bot.strategy.scalper import record_trade_result
             state = load_bot_state()
-            decisions, state = supervisor.evaluate_all(state)
+            decisions, state, changed = supervisor.evaluate_all(state)
             for d in decisions:
                 if _mcp(d.symbol, d.side, d.qty):
                     try:
@@ -97,7 +97,8 @@ def run() -> None:
                         notify_exit(d.symbol, d.side, d.price, d.pnl, f'{d.action}')
                     except Exception:
                         pass
-            save_bot_state(state)
+            if changed:
+                save_bot_state(state)
         except Exception:
             logger.exception("position supervisor cycle failed")
 

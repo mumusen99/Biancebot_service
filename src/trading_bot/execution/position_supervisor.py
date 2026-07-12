@@ -170,8 +170,8 @@ class PositionSupervisor:
 
         return ExitDecision.hold()
 
-    def evaluate_all(self, state: dict) -> tuple[list[ExitDecision], dict]:
-        """Evaluate all active positions, return (decisions, updated_state)."""
+    def evaluate_all(self, state: dict) -> tuple[list[ExitDecision], dict, bool]:
+        """Evaluate all active positions, return (decisions, updated_state, changed)."""
         decisions = []
         changed = False
         positions = state.get('positions', {})
@@ -187,4 +187,4 @@ class PositionSupervisor:
                 pos['status'] = 'closed'
             changed = True
 
-        return decisions, state
+        return decisions, state, changed
