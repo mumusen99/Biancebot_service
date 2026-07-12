@@ -84,7 +84,7 @@ def _place_algo_order(symbol: str, side: str, pos_side: str,
         "symbol": symbol, "side": side, "positionSide": pos_side,
         "type": ord_type, "quantity": qty,
         "triggerprice": str(aligned_trigger),
-        "workingType": "MARK_PRICE", "reduceOnly": "true",
+        "workingType": "MARK_PRICE",
         "algotype": "CONDITIONAL",
         "newClientOrderId": rid,
     }, rid, symbol)
