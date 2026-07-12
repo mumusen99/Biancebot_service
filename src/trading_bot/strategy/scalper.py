@@ -210,7 +210,8 @@ def _junk_score(pos: dict, mark_price: float = 0) -> float:
                 score -= 1
             elif (side == 'LONG' and mom > 0.05) or (side == 'SHORT' and mom < -0.05):
                 score += 1  # 顺方向加分
-    except:
+    except Exception:
+        logger.debug("momentum check failed, skipping", exc_info=True)
         pass
 
     # 持仓时间过长
@@ -223,7 +224,8 @@ def _junk_score(pos: dict, mark_price: float = 0) -> float:
                 score -= 2
             elif age_min > 30:
                 score -= 1
-        except:
+        except Exception:
+            logger.debug("position age calc failed, skipping", exc_info=True)
             pass
 
     # 水下深度（浮亏%保证金）
@@ -301,7 +303,8 @@ def check_daily_limit() -> tuple[bool, str]:
             total = bal
         else:
             total = 237.0  # 默认
-    except:
+    except Exception:
+        logger.warning("account total fetch failed, using default 237.0U", exc_info=True)
         total = 237.0
     if daily_pnl < 0 and abs(daily_pnl) > total * 0.05:
         return False, f'日亏损{abs(daily_pnl):.2f}U > 总资金{total:.1f}U的5%({total*0.05:.1f}U)，熔断'
@@ -539,7 +542,8 @@ def scan_signals() -> tuple:
             btc_returns['1m'] = (btc_now - float(btc_close[-2])) / float(btc_close[-2]) * 100 if len(btc_close) >= 2 else 0
             btc_returns['3m'] = (btc_now - float(btc_close[-4])) / float(btc_close[-4]) * 100 if len(btc_close) >= 4 else 0
             btc_returns['5m'] = (btc_now - float(btc_close[0])) / float(btc_close[0]) * 100 if len(btc_close) >= 5 else 0
-    except:
+    except Exception:
+        logger.debug("BTC returns calc failed", exc_info=True)
         pass
 
     # 第3层：5m 评分制入场（硬拒绝 + 动态评分 0-15）
@@ -598,7 +602,8 @@ def scan_signals() -> tuple:
             df_1m = None
             try:
                 df_1m = _fetch_klines_ws(sym, '1m', 8)
-            except:
+            except Exception:
+                logger.debug("1m kline fetch failed", exc_info=True)
                 pass
 
             pump_detected = False
@@ -839,7 +844,8 @@ def scan_signals() -> tuple:
                             rs_score += 1.0
                         if rs_5m > 0:
                             rs_score += 0.5
-                except:
+                except Exception:
+                    logger.debug("relative strength calc failed", exc_info=True)
                     pass
 
             # 硬拒绝：BTC 涨但山寨跌（弱势山寨，不做多）
@@ -1286,7 +1292,8 @@ def run_scalper():
                 try:
                     bt = market_cache.get_book_ticker(sym)
                     mark = (bt['b'] + bt['a']) / 2 if bt else 0
-                except:
+                except Exception:
+                    logger.debug("book ticker missing for junk score", exc_info=True)
                     pass
                 js = _junk_score(pos, mark)
                 junk_list.append((js, key, sym, pos))
@@ -1305,7 +1312,8 @@ def run_scalper():
                         try:
                             rot_bt = market_cache.get_book_ticker(j_sym)
                             rot_price = (rot_bt['b'] + rot_bt['a']) / 2 if rot_bt else entry_p
-                        except:
+                        except Exception:
+                            logger.debug("rotation price fetch failed, using entry", exc_info=True)
                             rot_price = entry_p
                         rot_pnl = (rot_price - entry_p) * qty
                         record_trade_result(rot_pnl, is_rotation=True)

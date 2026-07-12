@@ -32,7 +32,7 @@ def _trade_time(t: dict) -> float:
     """提取交易的Unix时间戳"""
     try:
         return datetime.fromisoformat(t.get("time","")).timestamp()
-    except:
+    except Exception:
         return 0
 
 # ═══════════════════════════════════════════════════
@@ -196,7 +196,8 @@ class MarketStateManager:
             if r.status_code == 200:
                 return {x['symbol']: float(x['price']) for x in r.json()
                         if x['symbol'].endswith('USDT')}
-        except:
+        except Exception:
+            logger.warning("market prices fetch failed", exc_info=True)
             pass
         return {}
     
@@ -717,7 +718,8 @@ class MarketStateManager:
                 self._profit_lock_start = now
             if self._profit_lock_active and now - self._profit_lock_start > 900:
                 self._profit_lock_active = False
-        except:
+        except Exception:
+            logger.debug("profit lock check failed, returning current", exc_info=True)
             pass
         return self._profit_lock_active
 

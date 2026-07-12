@@ -522,7 +522,8 @@ def _review_scalp_positions():
                 try:
                     opened_dt = datetime.fromisoformat(opened_str)
                     hold_seconds = (datetime.now() - opened_dt).total_seconds()
-                except:
+                except Exception:
+                    logger.debug("datetime parse failed for opened_at", exc_info=True)
                     pass
 
             # ─── 生命周期退出决策 ───
@@ -649,7 +650,8 @@ def _review_scalp_positions():
                     if a.get('algoStatus') in ('NEW', 'WORKING'):
                         try:
                             _cancel_algo(sym, a["algoId"])
-                        except:
+                        except Exception:
+                            logger.debug("algo cancel failed", exc_info=True)
                             pass
             
             else:  # active → 市价平仓
@@ -659,7 +661,8 @@ def _review_scalp_positions():
                     if a.get('algoStatus') in ('NEW', 'WORKING'):
                         try:
                             _cancel_algo(sym, a["algoId"])
-                        except:
+                        except Exception:
+                            logger.debug("algo cancel failed", exc_info=True)
                             pass
                 
                 # 市价平仓（反方向）
@@ -735,7 +738,8 @@ def _cleanup_stale_algos():
             for a in algos:
                 if a.get('algoStatus') in ('NEW', 'WORKING'):
                     by_sym[sym].append(a)
-        except:
+        except Exception:
+            logger.debug("get_algo_orders failed, skipping cleanup", exc_info=True)
             pass
     
     for sym, active in by_sym.items():
@@ -749,7 +753,8 @@ def _cleanup_stale_algos():
                 try:
                     _cancel_algo(sym, a["algoId"])
                     logger.info(f'    取消: {a["orderType"]} tp={a.get("triggerPrice")}')
-                except:
+                except Exception:
+                    logger.debug("algo cancel failed", exc_info=True)
                     pass
                 time.sleep(0.2)
         else:
@@ -766,7 +771,8 @@ def _cleanup_stale_algos():
             for a in to_cancel:
                 try:
                     _cancel_algo(sym, a["algoId"])
-                except:
+                except Exception:
+                    logger.debug("algo cancel failed", exc_info=True)
                     pass
                 time.sleep(0.2)
 

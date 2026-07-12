@@ -114,23 +114,6 @@ def _tick_decimals(tick: float) -> int:
     return 0
 
 
-def _align_sltp(symbol: str, sl_price: float, tp_price: float, side: str) -> tuple:
-    """对齐止盈止损价格到 tick size，方向安全化。
-    
-    LONG:  止损向上取整（更易触发，保护利润）
-           止盈向下取整（更易达到，落袋为安）
-    SHORT: 止损向下取整（更易触发，保护利润）
-           止盈向上取整（更易达到，落袋为安）
-    """
-    if side == "LONG":
-        sl = _align_price_dir(symbol, sl_price, 'up')    # 止损紧一点
-        tp = _align_price_dir(symbol, tp_price, 'down')  # 止盈易一点
-    else:
-        sl = _align_price_dir(symbol, sl_price, 'down')  # 止损紧一点
-        tp = _align_price_dir(symbol, tp_price, 'up')    # 止盈易一点
-    return sl, tp
-
-
 def _align_price(symbol: str, price: float) -> float:
     """
     将价格对齐到 tick size。

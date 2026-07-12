@@ -15,10 +15,8 @@ from trading_bot.services.position_manager import run_full_cycle
 from trading_bot.strategy import scalper
 from trading_bot.data.ws_market_client import ws_client, market_cache
 from trading_bot.strategy.candidate_pool import candidate_pool
-from trading_bot.risk.rate_limiter import traffic_monitor
-from trading_bot.execution.execution_priority_queue import execution_queue, latency_tracker
+from trading_bot.execution.execution_priority_queue import execution_queue
 from trading_bot.execution.position_supervisor import PositionSupervisor
-from trading_bot.strategy.incremental_features import feature_store
 
 import os
 LOG_DIR = os.getenv("TRADING_LOG_DIR", "/opt/trading-bot/current/logs")

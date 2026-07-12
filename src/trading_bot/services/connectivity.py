@@ -95,7 +95,7 @@ def wait_port(host="127.0.0.1", port=10809, timeout=3) -> bool:
             s.connect((host, port))
             s.close()
             return True
-        except:
+        except Exception:
             time.sleep(0.3)
     return False
 
@@ -202,7 +202,8 @@ def fetch_subscription() -> list[VmessNode]:
                     cached = json.load(f)
                 return [VmessNode(ip=c["ip"], port=c["port"], net=c.get("net", "tcp"), raw=c.get("raw", {}))
                         for c in cached]
-            except:
+            except Exception:
+                logger.debug("vmess parse failed", exc_info=True)
                 pass
         return []
 
@@ -281,7 +282,8 @@ def test_single_node(node: VmessNode, test_signed: bool = True) -> bool:
         r = rq.get(f"{_fapi}/ping", proxies=proxies, timeout=TIMEOUT)
         if r.status_code != 200:
             success = False
-    except:
+    except Exception:
+        logger.debug("binance ping test failed", exc_info=True)
         success = False
 
     # 测试2: klines (无签名)
@@ -291,7 +293,8 @@ def test_single_node(node: VmessNode, test_signed: bool = True) -> bool:
                        proxies=proxies, timeout=TIMEOUT)
             if r.status_code != 200:
                 success = False
-        except:
+        except Exception:
+            logger.debug("klines test failed", exc_info=True)
             success = False
 
     # 测试3: 签名 API (openOrders)
@@ -304,7 +307,8 @@ def test_single_node(node: VmessNode, test_signed: bool = True) -> bool:
                         headers={"X-MBX-APIKEY": API_KEY}, proxies=proxies, timeout=TIMEOUT)
             if r.status_code != 200:
                 success = False
-        except:
+        except Exception:
+            logger.debug("signed api test failed", exc_info=True)
             success = False
 
     subprocess.run(["pkill", "-f", f"xray.*test_{node.ip}"], capture_output=True)
@@ -329,7 +333,8 @@ def test_nodes_concurrent(nodes: list[VmessNode], max_workers: int = MAX_WORKERS
             ip = node.ip
             try:
                 ok = fut.result()
-            except:
+            except Exception:
+                logger.debug("concurrent test thread failed", exc_info=True)
                 ok = False
             results[ip] = ok
             status = "✅" if ok else "❌"
@@ -363,7 +368,7 @@ def test_binance(use_proxy=True) -> bool:
         r2 = rq.get(f"{_fapi}/openOrders?{q}&signature={sig}",
                      headers={"X-MBX-APIKEY": API_KEY}, proxies=proxies, timeout=TIMEOUT)
         return r2.status_code == 200
-    except:
+    except Exception:
         return False
 
 
@@ -432,7 +437,8 @@ def auto_recover() -> bool:
             for out in cfg.get("outbounds", []):
                 for v in out.get("settings", {}).get("vnext", []):
                     current_ip = v.get("address", "")
-    except:
+    except Exception:
+        logger.debug("xray api parse failed", exc_info=True)
         pass
     
     if os.path.exists(SUB_CACHE):
@@ -510,7 +516,7 @@ def show_status():
         r = rq.get("http://httpbin.org/ip", proxies={"http": f"http://127.0.0.1:10809"},
                    timeout=5)
         print(f"出口 IP: {r.json().get('origin', '未知')}")
-    except:
+    except Exception:
         print("出口 IP: ❌ 无法获取")
 
     ok = test_binance(use_proxy=True)

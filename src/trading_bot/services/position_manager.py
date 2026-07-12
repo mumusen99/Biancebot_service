@@ -586,10 +586,11 @@ def manage_all_positions(state: dict = None):
     if not positions:
         return
     
-    # 同步交易所最新状态
+    # 同步交易所最新状态（按 symbol:side 做键，hedge 模式安全）
     live_map = {}
     for p in fetch_exchange_positions():
-        live_map[p['symbol']] = p
+        key = f"{p['symbol']}:{p.get('positionSide', 'LONG')}"
+        live_map[key] = p
     
     active_count = 0
     closed_count = 0
@@ -599,8 +600,7 @@ def manage_all_positions(state: dict = None):
             closed_count += 1
             continue
         
-        exchange_sym = sym.split(':')[0] if ':' in sym else sym
-        lp = live_map.get(exchange_sym)
+        lp = live_map.get(sym)
         if not lp:
             if pos.get('status') == 'pending':
                 continue
