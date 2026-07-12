@@ -147,6 +147,26 @@ def run() -> None:
             if market_cache.stale_count > 10:
                 logger.warning("STALE DATA: %d symbols outdated", market_cache.stale_count)
 
+        # ── 每5分钟清理孤儿条件单 ──
+        if loop_count % 600 == 0:
+            try:
+                from trading_bot.exchange.gateway import ExchangeGateway
+                _gw = ExchangeGateway()
+                algo_orders = _gw._call("GET", _gw._fapi_v1, "openAlgoOrders", {})
+                # Fetch positions separately to get symbols
+                positions_result = _gw._call("GET", _gw._fapi_v2, "positionRisk", {})
+                pos_symbols = {p["symbol"] for p in (positions_result or []) if abs(float(p.get("positionAmt", 0))) > 0}
+                cancelled = 0
+                for a in (algo_orders or []):
+                    if a.get("symbol") not in pos_symbols:
+                        _gw._call("DELETE", _gw._fapi_v1, "algoOrder", {"symbol": a["symbol"], "algoId": a["algoId"]})
+                        logger.info(f"🧹 清理孤儿条件单: {a['symbol']} {a.get('orderType','')} id={a['algoId']}")
+                        cancelled += 1
+                if cancelled:
+                    logger.info(f"🧹 清理完成: {cancelled}个孤儿条件单")
+            except Exception:
+                pass
+
         time.sleep(0.5)
 
     ws_client.stop()
