@@ -1472,6 +1472,22 @@ def run_scalper():
         try:
             _api('POST', 'leverage', {'symbol': sym, 'leverage': SCALP_LEVERAGE})
 
+            # ─── RiskEngine 审批 ───
+            from trading_bot.risk.risk_engine import risk_engine
+            from trading_bot.strategy.regime_detector import get_position_confidence_factor
+            risk_result = risk_engine.approve_entry(
+                trade_type=str(trade_type),
+                risk_amount=float(effective_margin),
+                confidence=float(get_position_confidence_factor(btc_env.get('regime_probs', {}))),
+            )
+            if risk_result.decision.value != 'APPROVE':
+                logger.warning(f'  ⛔ RiskEngine拒绝: {risk_result.reason}')
+                return
+            if risk_result.risk_factor < 1.0:
+                effective_risk *= risk_result.risk_factor
+                effective_margin = SCALP_MARGIN * effective_risk * pos_mult
+                logger.info(f'  📉 RiskEngine降仓: factor={risk_result.risk_factor} margin={effective_margin:.1f}U')
+
             from trading_bot.exchange.client import _get_symbol_precision, _load_precisions
             from trading_bot.exchange.market_data import fetch_ticker
             _load_precisions()
