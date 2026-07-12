@@ -493,16 +493,16 @@ from trading_bot.strategy.position_review import (
 )
 
 def _fetch_klines_ws(symbol: str, timeframe: str = '5m', limit: int = 60):
-    """WS缓存优先获取K线，失败回退REST"""
-    # 尝试WS缓存（仅支持1m/5m）
-    if timeframe in ('1m', '5m'):
+    """WS缓存优先获取K线（仅1m），5m/15m直接走REST"""
+    # 1m走WS缓存（真实数据），5m/15m走REST（WS聚合是假的）
+    if timeframe == '1m':
         try:
             df = market_cache.get_klines_df(symbol, timeframe, limit)
             if df is not None and len(df) >= 20:
                 return df
         except Exception:
             pass
-    # 回退REST
+    # REST回退（5m/15m直接走这里）
     return fetch_klines(None, symbol, timeframe=timeframe, limit=limit)
 
 

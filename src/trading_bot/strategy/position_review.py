@@ -285,16 +285,14 @@ def _fix_existing_sltp():
             logger.warning(f'    ⚠️ 保护检查失败 {sym}: {exc}')
 
 def _fetch_klines_ws(symbol: str, timeframe: str = '5m', limit: int = 60):
-    """WS缓存优先获取K线，失败回退REST"""
-    # 尝试WS缓存（仅支持1m/5m）
-    if timeframe in ('1m', '5m'):
+    """WS缓存优先获取K线（仅1m），5m/15m直接走REST"""
+    if timeframe == '1m':
         try:
             df = market_cache.get_klines_df(symbol, timeframe, limit)
             if df is not None and len(df) >= 20:
                 return df
         except Exception:
             pass
-    # 回退REST
     return fetch_klines(None, symbol, timeframe=timeframe, limit=limit)
 
 def _sync_pending_orders():

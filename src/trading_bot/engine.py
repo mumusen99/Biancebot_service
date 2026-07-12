@@ -167,28 +167,20 @@ def run() -> None:
         # ── 每5分钟清理孤儿条件单 ──
         if loop_count % 600 == 0:
             try:
-                import os, requests, hmac, hashlib, time as _t
-                k = os.environ['BINANCE_API_KEY']; s = os.environ['BINANCE_API_SECRET']
-                ts = int(_t.time()*1e3)
-                q = f'timestamp={ts}'
-                sig = hmac.new(s.encode(), q.encode(), hashlib.sha256).hexdigest()
-                hdr = {'X-MBX-APIKEY': k}
-                base = 'https://fapi.binance.com'
-                algo = requests.get(f'{base}/fapi/v1/openAlgoOrders?{q}&signature={sig}', headers=hdr, timeout=10).json()
-                pos = requests.get(f'{base}/fapi/v2/positionRisk?{q}&signature={sig}', headers=hdr, timeout=10).json()
-                pos_syms = {p['symbol'] for p in pos if abs(float(p.get('positionAmt', 0))) > 0}
+                from trading_bot.exchange.gateway import get_gateway
+                gw = get_gateway()
+                positions = gw.get_positions()
+                pos_syms = {p.symbol for p in positions if abs(float(p.position_amt)) > 0}
+                algo_orders = gw.get_algo_orders()
                 cancelled = 0
-                for a in (algo if isinstance(algo, list) else []):
-                    sym = a.get('symbol', '')
-                    if sym not in pos_syms:
-                        aid = a.get('algoId', 0)
-                        q2 = f'symbol={sym}&algoId={aid}&timestamp={int(_t.time()*1e3)}'
-                        sig2 = hmac.new(s.encode(), q2.encode(), hashlib.sha256).hexdigest()
-                        r = requests.delete(f'{base}/fapi/v1/algoOrder?{q2}&signature={sig2}', headers=hdr, timeout=10)
-                        if r.status_code == 200:
-                            logger.info(f'🧹 orphan: {sym} {a.get("orderType","")} id={aid}')
+                for a in algo_orders:
+                    if a.symbol not in pos_syms:
+                        result = gw.cancel_algo_order(a.symbol, str(a.order_id))
+                        if result.success:
+                            logger.info(f'🧹 orphan: {a.symbol} {a.order_type.value} id={a.order_id}')
                             cancelled += 1
-                        _t.sleep(0.1)  # rate limit
+                        import time as _t2
+                        _t2.sleep(0.1)
                 if cancelled:
                     logger.info(f'🧹 清理完成: {cancelled} orphan(s)')
             except Exception as e:
