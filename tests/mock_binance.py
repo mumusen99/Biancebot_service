@@ -65,6 +65,7 @@ class MockHandler(BaseHTTPRequestHandler):
         return p.path, qs
 
     def do_GET(self):
+        global POSITIONS, ORDERS, ALGO_ORDERS, ORDER_ID, ALGO_ID
         path, qs = self._params()
 
         if path == '/fapi/v2/account':
@@ -112,6 +113,14 @@ class MockHandler(BaseHTTPRequestHandler):
                           t+step-1,'10000','500','500','5000','0'])
             return self._ok(k)
 
+        if '/reset' in path:
+            POSITIONS.clear()
+            ORDERS.clear()
+            ALGO_ORDERS.clear()
+            ORDER_ID = 1000000
+            ALGO_ID = 2000000
+            return self._ok({'reset': 'ok'})
+
         if '/openOrders' in path:
             return self._ok([o for o in ORDERS.values() if o['status']=='NEW'])
 
@@ -125,6 +134,7 @@ class MockHandler(BaseHTTPRequestHandler):
         return self._err(404,'Unknown GET '+path)
 
     def do_POST(self):
+        global POSITIONS, ORDERS, ALGO_ORDERS, ORDER_ID, ALGO_ID
         path, qs = self._params()
 
         if '/order' in path and 'algo' not in path:
