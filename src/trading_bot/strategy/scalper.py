@@ -83,6 +83,11 @@ SCALP_MAX_POSITIONS = 5           # 最多同时持有5个超短线单
 # 全局总仓位上限（所有策略合计，防止多脚本叠加开单）
 MAX_TOTAL_POSITIONS = 10          # 超过此数不再开新单
 
+# 插针狙击系统
+_SNIPE_WATCH = {}
+_SNIPE_TTL = 300
+_SNIPE_WICK = 0.003
+
 SL_PRICE_PCT = 1.8 / SCALP_LEVERAGE      # 0.6%价格 → -1.8%保证金（0.4%太窄被山寨噪音扫损）
 TP_PRICE_PCT = 3.6 / SCALP_LEVERAGE     # 1.2%价格 → +3.6%保证金（盈亏比保持1:2）
 
@@ -1171,6 +1176,39 @@ def scan_signals() -> tuple:
 #  限价单成交检测
 # ═══════════════════════════════════════════════════
 
+
+# ═══════════════════════════════════════════════
+#  插针狙击检查 (500ms real-time)
+# ═══════════════════════════════════════════════
+
+def _check_snipe_watch():
+    """Check snipe watchlist for wick triggers, return triggered symbols."""
+    triggered = []
+    now = time.time()
+    for sym in list(_SNIPE_WATCH):
+        w = _SNIPE_WATCH[sym]
+        if now - w['added_at'] > w['ttl']:
+            logger.info(f'[snipe] {sym} timeout')
+            del _SNIPE_WATCH[sym]
+            continue
+        bt = market_cache.get_book_ticker(sym)
+        if not bt:
+            continue
+        side = w['side']
+        entry_ref = w['entry_ref']
+        bid = float(bt.get('bid', entry_ref))
+        ask = float(bt.get('ask', entry_ref))
+        if side == "LONG":
+            wick = (bid - entry_ref) / entry_ref
+            if wick <= -_SNIPE_WICK:
+                logger.info(f'SNIPE LONG {sym} bid={bid:.5f} ref={entry_ref:.5f} ({wick*100:+.2f}%)')
+                triggered.append(sym)
+        else:
+            wick = (ask - entry_ref) / entry_ref
+            if wick >= _SNIPE_WICK:
+                logger.info(f'SNIPE SHORT {sym} ask={ask:.5f} ref={entry_ref:.5f} ({wick*100:+.2f}%)')
+                triggered.append(sym)
+    return triggered
 def run_scalper():
     logger.info('🏃‍♂️ 舔一口策略启动')
 
@@ -1489,8 +1527,22 @@ def run_scalper():
                 effective_risk *= 0.8
                 logger.info(f'🚀 激进LIMIT {sym} {side} @{limit_price} tier={tier} sc={score}')
             else:
-                entry_ref = limit_price
-                logger.info(f'🚀 被动LIMIT {sym} {side} @{limit_price} tier={tier} sc={score}')
+                # 插针狙击模式：加入500ms监控，不等挂单
+                stop_min = best.get('stop_min', 0.12)
+                stop_max = best.get('stop_max', 0.90)
+                if side == 'LONG':
+                    raw_sl = limit_price * (1 - min(stop_min, 0.35) / 100)
+                    raw_tp = limit_price * (1 + max(stop_max * 0.7, 0.5) / 100)
+                else:
+                    raw_sl = limit_price * (1 + min(stop_min, 0.35) / 100)
+                    raw_tp = limit_price * (1 - max(stop_max * 0.7, 0.5) / 100)
+                logger.info(f'🎯 SNIPE {sym} {side} ref={limit_price:.5f} SL/TP={raw_sl:.5f}/{raw_tp:.5f} sc={score}')
+                _SNIPE_WATCH[sym] = {
+                    'side': side, 'score': score, 'sl': raw_sl, 'tp': raw_tp,
+                    'entry_ref': limit_price, 'risk': effective_risk,
+                    'trade_type': str(trade_type), 'added_at': time.time(), 'ttl': _SNIPE_TTL,
+                }
+                continue
 
             # 仓位乘数（连损减仓）
             pos_mult = get_position_multiplier()

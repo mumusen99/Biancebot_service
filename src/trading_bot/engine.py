@@ -102,6 +102,15 @@ def run() -> None:
         except Exception:
             logger.exception("position supervisor cycle failed")
 
+        # ── 插针狙击检查 (实时) ──
+        try:
+            from trading_bot.strategy.scalper import _check_snipe_watch, _SNIPE_WATCH
+            sniped = _check_snipe_watch()
+            if sniped:
+                logger.info(f"🔫 检测到 {len(sniped)} 个插针信号: {sniped}")
+        except Exception:
+            pass
+
         # ── 持仓管理（间隔从 runtime 读取）──
         manage_interval = int(runtime_cfg.get("engine", {}).get("manage_interval_seconds", 10))
         if now_s >= next_manage:
