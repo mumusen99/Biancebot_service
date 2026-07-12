@@ -12,7 +12,7 @@ compute_signal(sym, btc_returns, bias) -> Optional[dict]
 import time
 import logging
 
-from trading_bot.strategy.indicators import compute_indicators
+from trading_bot.strategy.indicators import compute_scalp_indicators as compute_indicators
 
 # Module globals imported from scalper (set by apply_runtime_config)
 from trading_bot.strategy.scalper import (
