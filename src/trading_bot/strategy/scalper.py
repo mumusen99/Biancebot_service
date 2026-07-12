@@ -1042,6 +1042,12 @@ def run_scalper():
             qty_str = ('%g' % aligned_qty).replace(',', '')
 
             if use_market:
+                # 幂等检查：防止同一信号重复开仓
+                from trading_bot.services.position_manager import check_signal_idempotent
+                signal_id = f'{sym}:{side}:{int(time.time() / 60)}'  # 每分钟同币同方向只开一次
+                if not check_signal_idempotent(signal_id):
+                    logger.warning(f'⏭️ 幂等跳过: {sym} {side} (1分钟内已开仓)')
+                    continue
                 order = _api('POST', 'order', {
                     'symbol': sym, 'side': side_map[side], 'type': 'MARKET',
                     'quantity': qty_str, 'positionSide': side,

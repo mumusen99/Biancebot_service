@@ -164,6 +164,47 @@ def run() -> None:
             if market_cache.stale_count > 10:
                 logger.warning("STALE DATA: %d symbols outdated", market_cache.stale_count)
 
+        # ── 每30s: 裸仓看门狗（检测交易所持仓无本地状态 → 补硬止损或平仓）──
+        if loop_count % 60 == 0:
+            try:
+                from trading_bot.exchange.gateway import get_gateway
+                from trading_bot.exchange.protection import ensure_position_protection
+                from trading_bot.services.position_manager import load_bot_state as _ld, market_close_position as _mcp2
+                gw = get_gateway()
+                exchange_positions = gw.get_positions()
+                algo_orders = gw.get_algo_orders()
+                state_wd = _ld()
+                # 本地已管理的 symbol（状态中标记为 active 的仓位）
+                managed_syms = {k.split(':')[0] for k, v in state_wd.get('positions', {}).items()
+                                if v.get('status') == 'active'}
+                for ep in exchange_positions:
+                    amt = abs(float(ep.position_amt))
+                    if amt <= 0:
+                        continue
+                    if ep.symbol in managed_syms:
+                        continue  # 已管理，跳过
+                    side = ep.position_side.value
+                    entry_p = float(ep.entry_price)
+                    mark_p = float(ep.mark_price) if hasattr(ep, 'mark_price') and ep.mark_price else entry_p
+                    logger.critical(f'🚨 裸仓发现: {ep.symbol} {side} qty={amt} entry={entry_p}')
+                    # 尝试创建硬止损
+                    try:
+                        result = ensure_position_protection(
+                            symbol=ep.symbol, position_side=side, actual_qty=amt,
+                            stop_price=entry_p * (0.995 if side == 'LONG' else 1.005),
+                            take_profit_price=entry_p * (1.01 if side == 'LONG' else 0.99),
+                            mark_price=mark_p,
+                        )
+                        if result.stop_ok:
+                            logger.info(f'🛡️ 裸仓已保护: {ep.symbol} {side} SL/TP已创建')
+                        else:
+                            raise RuntimeError(f'protection failed: {result.reason}')
+                    except Exception as pe:
+                        logger.critical(f'🚨 裸仓保护失败, 紧急平仓: {ep.symbol} {side} | {pe}')
+                        _mcp2(ep.symbol, side, amt)
+            except Exception as e:
+                logger.warning(f'🔍 裸仓检查异常: {e}')
+
         # ── 每5分钟清理孤儿条件单 ──
         if loop_count % 600 == 0:
             try:
