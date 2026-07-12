@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
-"""币安合约REST模拟器"""
+"""币安合约REST模拟器 — Hedge Mode: positions keyed by symbol+side."""
 import json, os, random, sys, threading, time
 from collections import defaultdict
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
 BALANCE = 250.0
-POSITIONS = {}
-ORDERS = {}
-ALGO_ORDERS = {}
+POSITIONS = {}          # key: "SYMBOL:SIDE" str (e.g. "BTCUSDT:LONG")
+ORDERS = {}             # key: int order_id
+ALGO_ORDERS = {}        # key: int algo_id
 ORDER_ID = 1000000
 ALGO_ID = 2000000
+
+def _pkey(sym: str, side: str) -> str:
+    """Position key: SYMBOL:SIDE"""
+    return f"{sym}:{side.upper()}"
 
 COINS = {
     'BTCUSDT':64300,'ETHUSDT':3450,'SOLUSDT':145,'ADAUSDT':0.17,
@@ -50,27 +54,42 @@ class MockHandler(BaseHTTPRequestHandler):
 
     def _params(self):
         p = urlparse(self.path)
-        return p.path, parse_qs(p.query)
+        qs = parse_qs(p.query)
+        # Also read POST body for do_POST
+        if self.command == 'POST':
+            cl = int(self.headers.get('Content-Length', 0))
+            if cl > 0:
+                body = self.rfile.read(cl).decode()
+                body_qs = parse_qs(body)
+                qs.update(body_qs)
+        return p.path, qs
 
     def do_GET(self):
         path, qs = self._params()
 
         if path == '/fapi/v2/account':
-            pl = [{'symbol':sym,'positionAmt':str(p['positionAmt']),
-                   'entryPrice':str(p['entryPrice']),'markPrice':str(_tick(sym)),
-                   'unRealizedProfit':'0','leverage':'5',
-                   'positionSide':p.get('side','LONG')} for sym,p in POSITIONS.items()]
+            pl = []
+            for pkey, p in POSITIONS.items():
+                sym = pkey.split(':')[0]
+                pl.append({'symbol': sym, 'positionAmt': str(p['positionAmt']),
+                   'entryPrice': str(p['entryPrice']), 'markPrice': str(_tick(sym)),
+                   'unRealizedProfit': '0', 'leverage': '5',
+                   'positionSide': p.get('side', 'LONG')})
             return self._ok({'totalWalletBalance':str(BALANCE),
                 'availableBalance':str(BALANCE-10),'totalUnrealizedProfit':'0',
                 'totalMarginBalance':str(BALANCE),'positions':pl})
 
         if '/positionRisk' in path:
             sym = qs.get('symbol',[None])[0]
-            r = [{'symbol':s,'positionAmt':str(p['positionAmt']),
-                  'entryPrice':str(p['entryPrice']),'markPrice':str(_tick(s)),
-                  'unRealizedProfit':str(round((_tick(s)-p['entryPrice'])*p['positionAmt'],4)),
-                  'leverage':'5','positionSide':p.get('side','LONG')}
-                 for s,p in POSITIONS.items() if not sym or s==sym]
+            r = []
+            for pkey, p in POSITIONS.items():
+                s = pkey.split(':')[0]
+                if sym and s != sym:
+                    continue
+                r.append({'symbol': s, 'positionAmt': str(p['positionAmt']),
+                  'entryPrice': str(p['entryPrice']), 'markPrice': str(_tick(s)),
+                  'unRealizedProfit': str(round((_tick(s)-p['entryPrice'])*p['positionAmt'],4)),
+                  'leverage': '5', 'positionSide': p.get('side', 'LONG')})
             return self._ok(r)
 
         if '/ticker/24hr' in path:
@@ -112,34 +131,42 @@ class MockHandler(BaseHTTPRequestHandler):
             sym = qs.get('symbol',['BTCUSDT'])[0]
             side = qs.get('side',['BUY'])[0]
             qty = float(qs.get('quantity',[1])[0])
+            ps_raw = qs.get('positionSide',['LONG'])[0].upper()
+            ps = 'LONG' if ps_raw == 'LONG' else 'SHORT'
             price = _tick(sym)
+            pkey = _pkey(sym, ps)
 
-            if sym in POSITIONS:
-                pos = POSITIONS[sym]
-                ps = pos.get('side','LONG')
-                if (ps=='LONG' and side=='SELL') or (ps=='SHORT' and side=='BUY'):
-                    nq = pos['positionAmt']-qty
-                    if nq<=0: del POSITIONS[sym]
-                    else: pos['positionAmt']=nq
+            if pkey in POSITIONS:
+                pos = POSITIONS[pkey]
+                # Reduce/close existing
+                nq = pos['positionAmt'] - qty
+                if nq <= 0:
+                    del POSITIONS[pkey]
+                else:
+                    pos['positionAmt'] = nq
             else:
-                POSITIONS[sym]={'entryPrice':price,'positionAmt':qty,
-                                'side':'LONG' if side=='BUY' else 'SHORT'}
+                # New position
+                POSITIONS[pkey] = {'entryPrice': price, 'positionAmt': qty, 'side': ps}
 
             oid = _next_id()
-            ORDERS[oid]={'orderId':oid,'symbol':sym,'side':side,
-                         'type':qs.get('type',['MARKET'])[0],
-                         'origQty':str(qty),'price':str(price),
-                         'status':'FILLED','avgPrice':str(price)}
+            ORDERS[oid] = {'orderId': oid, 'symbol': sym, 'side': side,
+                         'type': qs.get('type',['MARKET'])[0],
+                         'origQty': str(qty), 'price': str(price),
+                         'status': 'FILLED', 'avgPrice': str(price),
+                         'positionSide': ps}
             return self._ok(ORDERS[oid])
 
         if '/algoOrder' in path:
             sym = qs.get('symbol',['BTCUSDT'])[0]
+            ps_raw = qs.get('positionSide',['LONG'])[0].upper()
+            ps = 'LONG' if ps_raw == 'LONG' else 'SHORT'
             aid = _next_algo_id()
-            ALGO_ORDERS[aid]={'algoId':aid,'symbol':sym,'algoStatus':'NEW',
-                'orderType':qs.get('type',['STOP_MARKET'])[0],
-                'triggerPrice':qs.get('triggerprice',
+            ALGO_ORDERS[aid] = {'algoId': aid, 'symbol': sym, 'algoStatus': 'NEW',
+                'positionSide': ps,
+                'orderType': qs.get('type',['STOP_MARKET'])[0],
+                'triggerPrice': qs.get('triggerprice',
                     [qs.get('stopPrice',['0'])[0]])[0]}
-            return self._ok({'algoId':aid,'algoStatus':'NEW'})
+            return self._ok({'algoId': aid, 'algoStatus': 'NEW'})
 
         return self._err(404,'Unknown POST '+path)
 
