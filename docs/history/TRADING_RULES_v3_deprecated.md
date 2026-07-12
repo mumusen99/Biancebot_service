@@ -1,3 +1,6 @@
+> ⚠️ **已废弃** — 本文档描述的是旧版架构（15分钟周期、KOL引擎、cron调度）。
+> 当前生产架构见 `docs/design/PROJECT_STRUCTURE_V2.md` 和 `docs/ALGORITHM.md`。
+
 # 自动交易策略约束文档 v3
 
 > 基于 `auto_trader.py` + `trader.py` + `indicators.py` 的完整交易规则。

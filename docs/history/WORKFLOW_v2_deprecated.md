@@ -1,3 +1,6 @@
+> ⚠️ **已废弃** — 本文档描述的是旧版架构（15分钟周期、KOL引擎、cron调度）。
+> 当前生产架构见 `docs/design/PROJECT_STRUCTURE_V2.md` 和 `docs/ALGORITHM.md`。
+
 # 🤖 Binance 合约自动交易机器人 — 工作流 v2
 
 > 严格执行，不跳步、不偏离

@@ -74,19 +74,17 @@ FAPI_BASE = _FAPI_BASE
 _session = req.Session()
 _session.proxies = {'http': PROXY, 'https': PROXY}
 
-# ─── 策略参数 ──────────────────────────────────────
-SCALP_LEVERAGE = 3               # 3x 杠杆
-SCALP_MARGIN = 10.0              # 每单保证金10U → 持仓30U (10×3)
-SCALP_BUDGET = 60.0               # 总预算60U（最多6单×10U保证金）
-SCALP_MAX_POSITIONS = 5           # 最多同时持有5个超短线单
+# ─── 策略参数（默认值，运行时由 apply_runtime_config() 覆盖）─────
+SCALP_LEVERAGE = 5               # 5x 杠杆 (runtime: risk.leverage)
+SCALP_MARGIN = 20.0              # 每单保证金20U → 持仓100U (20×5)
+SCALP_BUDGET = 100.0             # 总预算100U（最多5单×20U保证金）
+SCALP_MAX_POSITIONS = 5          # 最多同时持有5个超短线单
+MAX_TOTAL_POSITIONS = 8          # 全局总仓位上限 (runtime: risk.max_total_positions)
 
-# 全局总仓位上限（所有策略合计，防止多脚本叠加开单）
-MAX_TOTAL_POSITIONS = 10          # 超过此数不再开新单
-
-# 插针狙击系统
+# 插针狙击参数 (runtime: strategy.snipe)
 _SNIPE_WATCH = {}
-_SNIPE_TTL = 300
-_SNIPE_WICK = 0.003
+_SNIPE_TTL = 300                 # 狙击信号有效期秒
+_SNIPE_WICK = 0.003              # 插针检测阈值 0.3%
 
 SL_PRICE_PCT = 1.8 / SCALP_LEVERAGE      # 0.6%价格 → -1.8%保证金（0.4%太窄被山寨噪音扫损）
 TP_PRICE_PCT = 3.6 / SCALP_LEVERAGE     # 1.2%价格 → +3.6%保证金（盈亏比保持1:2）
