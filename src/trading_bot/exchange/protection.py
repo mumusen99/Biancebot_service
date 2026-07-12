@@ -58,18 +58,24 @@ def align_protection_prices(symbol: str, side: str, sl: float, tp: float) -> tup
     )
 
 
-def validate_protection_side(side: str, mark: float, sl: float, tp: float | None) -> None:
-    """校验止损在Mark Price正确一侧"""
+def validate_protection_side(side: str, mark: float, sl: float, tp: float | None) -> tuple[float, float | None]:
+    """校验并自动修正止损止盈到Mark Price正确一侧。返回修正后的(sl, tp)。"""
+    margin = abs(mark) * 0.0005  # 0.05% buffer
     if side == "LONG":
-        if not sl < mark:
-            raise ValueError(f"LONG stop must be below mark: sl={sl}, mark={mark}")
-        if tp is not None and not mark < tp:
-            raise ValueError(f"LONG tp must be above mark: tp={tp}, mark={mark}")
+        if sl >= mark:
+            sl = mark - margin
+            logger.warning(f"LONG SL adjusted to below mark: {sl}")
+        if tp is not None and tp <= mark:
+            tp = mark + margin
+            logger.warning(f"LONG TP adjusted to above mark: {tp}")
     else:
-        if not sl > mark:
-            raise ValueError(f"SHORT stop must be above mark: sl={sl}, mark={mark}")
-        if tp is not None and not mark > tp:
-            raise ValueError(f"SHORT tp must be below mark: tp={tp}, mark={mark}")
+        if sl <= mark:
+            sl = mark + margin
+            logger.warning(f"SHORT SL adjusted to above mark: {sl}")
+        if tp is not None and tp >= mark:
+            tp = mark - margin
+            logger.warning(f"SHORT TP adjusted to below mark: {tp}")
+    return sl, tp
 
 
 from trading_bot.exchange.gateway import get_gateway
@@ -139,12 +145,10 @@ def ensure_position_protection(
         symbol, position_side, stop_price, take_profit_price or stop_price * 1.02
     )
 
-    # 校验方向
-    try:
-        validate_protection_side(position_side, mark_price, sl_aligned,
-                                 tp_aligned if take_profit_price else None)
-    except ValueError as exc:
-        return ProtectionResult(False, False, reason=str(exc))
+    # 校验并修正方向
+    sl_aligned, tp_aligned = validate_protection_side(
+        position_side, mark_price, sl_aligned,
+        tp_aligned if take_profit_price else None)
 
     # 创建止损
     stop_ok = False

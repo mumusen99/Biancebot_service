@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import logging.handlers
 import os
 import signal
 import time
@@ -19,9 +20,19 @@ from trading_bot.execution.execution_priority_queue import execution_queue, late
 from trading_bot.execution.position_supervisor import PositionSupervisor
 from trading_bot.strategy.incremental_features import feature_store
 
+import os
+LOG_DIR = os.getenv("TRADING_LOG_DIR", "/opt/trading-bot/current/logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
     format="%(asctime)s [engine] %(levelname)s %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        logging.handlers.RotatingFileHandler(
+            f"{LOG_DIR}/engine.log", maxBytes=5*1024*1024, backupCount=3,
+        ),
+    ],
 )
 logger = logging.getLogger("trading_bot.engine")
 _STOP = False
