@@ -117,7 +117,7 @@ class MarketCache:
         return time.time() - self._last_update.get(f"ticker_{symbol}", 0) > max_age
 
     def aggregate_5m(self, symbol: str) -> Optional[dict]:
-        """从1m K线聚合成5m OHLCV"""
+        """⚠️ DEPRECATED: 5m K线已改用REST获取。此方法仅做1m聚合，不保留历史。"""
         with self._lock:
             klines = self._klines_1m.get(symbol, [])
             if len(klines) < 5:

@@ -106,7 +106,7 @@ class StateStore:
     def save(self, state: dict) -> None:
         """原子写入状态：校验 → tmp → fsync → replace → fsync dir。"""
         if self._lock_fd is None:
-            logger.warning("saving state without lock held")
+            logger.debug("saving state without lock held")
 
         # Schema version
         state["schema_version"] = CURRENT_SCHEMA_VERSION
