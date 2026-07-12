@@ -327,7 +327,8 @@ def _sync_pending_orders():
                             state['positions'][pkey]['status'] = 'closed'
                             changed = True
                             continue
-                    except: pass
+                    except Exception:
+                        logger.debug(f'  ⏰ {sym} 无法解析opened_at，跳过过期检查')
                 logger.info(f'  ⏳ 限价单未成交: {sym} orderId={order_id}')
                 continue
 

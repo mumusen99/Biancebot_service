@@ -176,14 +176,17 @@ def ensure_position_protection(
     )
 
 
-def cancel_all_protection(symbol: str) -> int:
-    """取消某币所有活跃条件单，返回取消数。"""
+def cancel_all_protection(symbol: str, position_side: str = None) -> int:
+    """取消某币条件单，返回取消数。position_side 可选过滤方向。"""
     cancelled = 0
     for a in _get_algo_orders(symbol):
-        if a.get("algoStatus") in ("NEW", "WORKING"):
-            if _cancel_algo(symbol, a["algoId"]):
-                cancelled += 1
-            time.sleep(0.15)
+        if a.get("algoStatus") not in ("NEW", "WORKING"):
+            continue
+        if position_side and str(a.get("positionSide", "")).upper() != position_side.upper():
+            continue
+        if _cancel_algo(symbol, a["algoId"]):
+            cancelled += 1
+        time.sleep(0.15)
     return cancelled
 
 

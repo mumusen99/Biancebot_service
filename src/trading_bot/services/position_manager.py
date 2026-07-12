@@ -381,34 +381,41 @@ def sync_all_positions(state: dict = None) -> dict:
 @with_trade_lock
 def market_close_position(symbol: str, side: str, qty: float) -> bool:
     """
-    市价平仓一个持仓。
+    市价平仓一个持仓。按 symbol+side 精确定位，不影响同币种反向仓。
     """
     # 平仓前重新读取实际持仓，防止状态过期
     live_positions = fetch_exchange_positions()
     actual_qty = 0
     for p in live_positions:
-        if p['symbol'] == symbol and abs(float(p.get('positionAmt',0))) > 0:
+        p_side = str(p.get('positionSide', 'LONG')).upper()
+        if p['symbol'] == symbol and p_side == side.upper() and abs(float(p.get('positionAmt',0))) > 0:
             actual_qty = abs(float(p['positionAmt']))
             break
     if actual_qty <= 0:
-        logger.info(f'  {symbol} 已无持仓，跳过平仓')
+        logger.info(f'  {symbol}:{side} 已无持仓，跳过平仓')
         return False  # 不是我们平的，不算成功
     
-    # 1. 精准取消条件单（通过 gateway）
+    # 1. 精准取消条件单（仅当前方向）
     try:
         algos = _gw.get_algo_orders(symbol)
         for a in algos:
-            if a.status.value in ('NEW', 'SUBMITTED'):
+            a_side = str(getattr(a, 'position_side', '')).upper()
+            if a_side != side.upper():
+                continue
+            if getattr(a, 'status', None) and a.status.value in ('NEW', 'SUBMITTED'):
                 _gw.cancel_algo_order(symbol, str(a.order_id))
                 time.sleep(0.1)
     except Exception:
         pass
     
-    # 2. 精准取消普通挂单（通过 gateway）
+    # 2. 精准取消普通挂单（仅当前方向）
     try:
         orders = _gw.get_open_orders(symbol)
         for o in orders:
-            if o.status.value == 'SUBMITTED':
+            o_side = str(getattr(o, 'position_side', '')).upper()
+            if o_side != side.upper():
+                continue
+            if getattr(o, 'status', None) and o.status.value == 'SUBMITTED':
                 _gw.cancel_order(symbol, str(o.order_id))
                 time.sleep(0.1)
     except Exception:

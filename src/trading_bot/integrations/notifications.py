@@ -69,8 +69,44 @@ def notify_exit(symbol, side, exit_price, pnl=0.0, reason=""):
     _send_qq(msg)
     print(f"📤 QQ平仓通知: {symbol}")
 
+
+# ── 开仓状态变更通知 ──
+_last_trading_status = None  # True=允许, False=停止, None=初始
+
+def notify_trading_status(can_trade: bool, reasons: list, btc_info: dict = None):
+    """
+    开仓状态变更时发送QQ通知。
+    can_trade: 当前是否允许开仓
+    reasons: 停止原因列表（允许时可为空）
+    btc_info: BTC环境信息 {regime, bias, price}
+    """
+    global _last_trading_status
+    if can_trade == _last_trading_status:
+        return  # 状态未变，不通知
+    _last_trading_status = can_trade
+
+    btc_str = ""
+    if btc_info:
+        regime = btc_info.get('regime', '?')
+        bias = btc_info.get('bias', 0)
+        price = btc_info.get('price', 0)
+        bias_str = f"{'+' if bias >= 0 else ''}{bias}"
+        btc_str = f"\nBTC: {price:.0f}U  {regime}  bias={bias_str}"
+
+    if not can_trade:
+        reason_str = "\n".join(f"├ {r}" for r in reasons)
+        msg = (f"⛔ 停止开仓{btc_str}\n"
+               f"{reason_str}\n"
+               f"\n{_get_account_summary()}")
+    else:
+        msg = (f"✅ 恢复开仓{btc_str}\n"
+               f"├ 开仓限制已解除\n"
+               f"\n{_get_account_summary()}")
+    _send_qq(msg)
+    print(f"📤 QQ状态通知: {'恢复开仓' if can_trade else '停止开仓'}")
+
+
 def push(msg, msg_type="info"):
-    """兼容旧接口"""
     _send_qq(msg)
 
 def pop_all():

@@ -30,6 +30,7 @@ from trading_bot.data.ws_market_client import market_cache
 from trading_bot.exchange.market_data import fetch_ticker, fetch_klines
 from trading_bot.exchange.client import _api, IS_TESTNET, LIVE_FAPI, TESTNET_FAPI, _align_price_dir
 from trading_bot.strategy.market_regime import get_btc_environment, scan_top_coins
+from trading_bot.integrations.notifications import notify_trading_status
 from trading_bot.strategy.regime_detector import (
     detect_regime_probabilities, get_position_confidence_factor,
 )
@@ -51,6 +52,21 @@ BASE_DIR = Path(__file__).parent
 from trading_bot.core.env_config import get_exchange_config
 _FAPI_BASE = get_exchange_config().fapi_v1_base
 _FAPI2_BASE = get_exchange_config().fapi_v2_base
+
+# 开仓状态追踪（用于通知）
+_last_can_open = True  # 假设初始允许
+_last_stop_reasons = []
+
+def _check_trading_status(can_open: bool, reasons: list, btc_env: dict = None):
+    """检查开仓状态变化并通知。在 run_scalper 每次调用结束时调用。"""
+    global _last_can_open, _last_stop_reasons
+    if can_open == _last_can_open and reasons == _last_stop_reasons:
+        return  # 无变化
+    # 只在状态真正变化时通知
+    if can_open != _last_can_open:
+        _last_can_open = can_open
+        _last_stop_reasons = reasons
+        notify_trading_status(can_open, reasons, btc_env)
 
 # 兼容旧代码的别名
 FAPI_BASE = _FAPI_BASE
@@ -1163,10 +1179,12 @@ def run_scalper():
     can_trade, limit_reason = check_daily_limit()
     if not can_trade:
         logger.warning(f'🛑 日亏损熔断: {limit_reason}')
+        _check_trading_status(False, [limit_reason])
         return
 
     if current_scalp_count >= SCALP_MAX_POSITIONS:
         logger.info('⏸️ 超短线仓位已满，跳过')
+        _check_trading_status(False, [f'超短线仓位已满 {current_scalp_count}/{SCALP_MAX_POSITIONS}'])
         return
 
     # ── 垃圾单轮换：满仓但有高分信号 → 踢掉最低分 ──
@@ -1177,12 +1195,14 @@ def run_scalper():
             _signals, _ = scan_signals()
             if not _signals:
                 logger.info(f'⏸️ 总仓位已达上限 {total_pos}/{MAX_TOTAL_POSITIONS}，无新信号，跳过')
+                _check_trading_status(False, [f'总仓位已达上限 {total_pos}/{MAX_TOTAL_POSITIONS}，无高分轮换信号'])
                 return
             best_new = _signals[0]
             new_score = best_new.get('score', 0)
             if new_score < 8.5:
                 ns = best_new['symbol']
                 logger.info(f'⏸️ 总仓位已上限 {total_pos}/{MAX_TOTAL_POSITIONS}，最优信号{ns} {new_score:.1f}<8.5，跳过')
+                _check_trading_status(False, [f'总仓位已达上限 {total_pos}/{MAX_TOTAL_POSITIONS}，最优信号{ns} {new_score:.1f}<8.5'])
                 return
             
             # 对所有持仓垃圾评分
@@ -1591,9 +1611,31 @@ def run_scalper():
                     raw_sl = actual_price * (1 + risk_pct_plan / 100)
                     raw_tp = actual_price * (1 - reward_pct_plan / 100)
 
-                # 不再挂交易所条件单，由 position_manager 的 WS 监控负责平仓
+                # 创建交易所硬止损（断网/崩溃保护）
                 sl_price, tp_price = round(raw_sl, 8), round(raw_tp, 8)
-                logger.info(f'✅ 市价入场: ID {order_id} @ {actual_price} qty={actual_qty} SL={sl_price} TP={tp_price}')
+                try:
+                    from trading_bot.exchange.protection import ensure_position_protection
+                    prot_result = ensure_position_protection(
+                        symbol=sym, position_side=side, actual_qty=actual_qty,
+                        stop_price=sl_price, take_profit_price=tp_price,
+                        mark_price=actual_price, owner_tag=str(order_id),
+                    )
+                    if not prot_result.stop_ok:
+                        logger.critical(f'🚨 {sym} 止损创建失败，紧急平仓！')
+                        from trading_bot.services.position_manager import market_close_position
+                        market_close_position(sym, side, actual_qty)
+                        raise RuntimeError(f'PROTECTION_FAILED: {sym}')
+                    logger.info(f'✅ 市价入场: ID {order_id} @ {actual_price} qty={actual_qty} SL={sl_price}(hard) TP={tp_price}')
+                except RuntimeError:
+                    raise
+                except Exception as prot_err:
+                    logger.critical(f'🚨 {sym} 保护单创建异常: {prot_err}，紧急平仓')
+                    try:
+                        from trading_bot.services.position_manager import market_close_position
+                        market_close_position(sym, side, actual_qty)
+                    except Exception:
+                        logger.critical(f'🚨 {sym} 紧急平仓也失败了！需人工处理')
+                    raise RuntimeError(f'PROTECTION_EXCEPTION: {sym}')
                 is_active = 'active'
                 action_type = 'OPEN'
                 label = '市价入场'
@@ -1669,6 +1711,9 @@ def run_scalper():
             import traceback
             logger.error(traceback.format_exc())
 
+    # ── 开仓状态通知：到达此处=未触发任何停止条件，开仓允许 ──
+    _btc = btc_env if 'btc_env' in locals() else {}
+    _check_trading_status(True, [], _btc)
 
     if __name__ == '__main__':
         run_scalper()
