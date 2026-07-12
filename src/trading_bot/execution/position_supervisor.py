@@ -179,7 +179,12 @@ class PositionSupervisor:
         for key, pos in list(positions.items()):
             if pos.get('status') not in ('active', 'pending'):
                 continue
+            # Snapshot confirm counters before evaluation
+            before = {k: pos.get(k, 0) for k in ('_sl_confirm', '_tp1_confirm', '_tp2_confirm', '_trail_confirm')}
             d = self.evaluate(key, pos)
+            # Mark changed if confirm counters were modified
+            if not changed and any(pos.get(k, 0) != before[k] for k in before):
+                changed = True
             if d.action == "HOLD":
                 continue
             decisions.append(d)
