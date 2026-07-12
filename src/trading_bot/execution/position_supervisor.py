@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from trading_bot.data.ws_market_client import market_cache
+from trading_bot.domain.trade_plan import TP_PLANS, TakeProfitLevel
 
 logger = logging.getLogger("trading_bot.supervisor")
 
@@ -83,7 +84,14 @@ class PositionSupervisor:
             logger.warning(f'🛑 SL: {sym} price={price} sl={sl}')
             return ExitDecision(sym, side, "SL", price, cur_qty, pnl)
 
-        # ── TP1 (50%) ──
+        # ── TP levels from plan (fractions of original qty) ──
+        trade_type = pos.get('trade_type', 'TREND_PULLBACK')
+        orig_qty = float(pos.get('original_qty', cur_qty))
+        tp_plan = TP_PLANS.get(str(trade_type), TP_PLANS['TREND_PULLBACK'])
+        tp1_frac = float(tp_plan[0].close_fraction_of_original) if len(tp_plan) > 0 else 0.50
+        tp2_frac = float(tp_plan[1].close_fraction_of_original) if len(tp_plan) > 1 else 0.30
+
+        # ── TP1 ──
         tp1_raw = 1.0 * risk_dist
         tp1_min = cost_floor * 2.5  # TP1 must cover at least 2.5x costs
         tp1_dist = max(tp1_raw, tp1_min)
@@ -95,18 +103,18 @@ class PositionSupervisor:
             if c != old_c:
                 pos['_tp1_confirm'] = c
             if c >= 2:
-                qty1 = max(1, int(cur_qty * 0.50))
+                qty1 = max(1, int(orig_qty * tp1_frac))
                 pos['tp1_hit'] = True
                 pos['qty'] = cur_qty - qty1
                 pos['trailing_active'] = True
                 pos['highest_price'] = price
-                logger.warning(f'🎯 TP1: {sym} 50%({qty1})')
+                logger.warning(f'🎯 TP1: {sym} {tp1_frac*100:.0f}%({qty1})')
                 if pos['qty'] <= 0:
                     pnl = (price - entry) * cur_qty if side == 'LONG' else (entry - price) * cur_qty
                     return ExitDecision(sym, side, "TP1", price, qty1, pnl)
                 return ExitDecision(sym, side, "TP1", price, qty1)
 
-        # ── TP2 (30%) ──
+        # ── TP2 ──
         tp2 = round(entry + 1.5 * risk_dist if side == 'LONG' else entry - 1.5 * risk_dist, 8)
         if not pos.get('tp2_hit'):
             hit = (side == 'LONG' and price >= tp2) or (side == 'SHORT' and price <= tp2)
@@ -115,10 +123,10 @@ class PositionSupervisor:
             if c2 != old_c2:
                 pos['_tp2_confirm'] = c2
             if c2 >= 2:
-                qty2 = max(1, int(cur_qty * 0.30))
+                qty2 = max(1, int(orig_qty * tp2_frac))
                 pos['tp2_hit'] = True
                 pos['qty'] = max(0, cur_qty - qty2)
-                logger.warning(f'🎯 TP2: {sym} 30%({qty2})')
+                logger.warning(f'🎯 TP2: {sym} {tp2_frac*100:.0f}%({qty2})')
                 if pos['qty'] <= 0:
                     pnl = (price - entry) * cur_qty if side == 'LONG' else (entry - price) * cur_qty
                     return ExitDecision(sym, side, "TP2", price, qty2, pnl)
