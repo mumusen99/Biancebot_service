@@ -288,3 +288,97 @@ def ensure_partial_tp_protection(
         take_profit_ok=tp1_ok or tp2_ok,
         reason=f"partial_tp tp1_ok={tp1_ok} tp2_ok={tp2_ok}",
     )
+
+
+# ── Versioned protection update (3.13) ──
+
+# Per-position version registry: {position_key: {"version": N, "stop_cid": "..."}}
+_protection_versions: dict[str, dict] = {}
+
+
+def _pos_key(symbol: str, side: str) -> str:
+    return f"{symbol}:{side.upper()}"
+
+
+def get_protection_version(symbol: str, side: str) -> int:
+    """Get current protection version for a position."""
+    return _protection_versions.get(_pos_key(symbol, side), {}).get("version", 0)
+
+
+def update_stop_versioned(
+    *,
+    symbol: str,
+    position_side: str,
+    new_stop_price: float,
+    qty: float,
+    mark_price: float,
+    take_profit_price: float | None = None,
+) -> ProtectionResult:
+    """Versioned stop update: create new → confirm → cancel old. Safety-first."""
+    from trading_bot.exchange.client import _get_symbol_precision, _load_precisions
+    _load_precisions()
+    _, step, _, _ = _get_symbol_precision(symbol)
+
+    key = _pos_key(symbol, position_side)
+    current = _protection_versions.get(key, {"version": 0, "stop_cid": ""})
+    old_version = current["version"]
+    old_stop_cid = current.get("stop_cid", "")
+
+    qty_decimals = len(str(step).split(".")[-1]) if "." in str(step) else 0
+    qty_aligned = int(qty / step) * step
+    qty_str = ("%g" % qty_aligned).replace(",", "")
+    if float(qty_str) <= 0:
+        return ProtectionResult(False, False, reason="zero qty")
+
+    close_side = "SELL" if position_side == "LONG" else "BUY"
+    sl_aligned, tp_aligned = align_protection_prices(
+        symbol, position_side, new_stop_price, take_profit_price or new_stop_price * 1.02
+    )
+
+    # Step 1: Create new version (version+1)
+    new_cid = f"prot-v{old_version + 1}-{symbol.lower()}-{position_side.lower()}"
+    try:
+        sl_order = _place_algo_order(symbol, close_side, position_side,
+                                      "STOP_MARKET", qty_str, sl_aligned)
+        new_stop_id = int(sl_order.get("algoId", 0) or 0)
+        if not new_stop_id:
+            return ProtectionResult(False, False, reason="new stop creation failed")
+    except Exception as e:
+        return ProtectionResult(False, False, reason=f"new stop error: {e}")
+
+    # Step 2: Confirm new stop exists
+    time.sleep(0.3)
+    algos = _get_algo_orders(symbol)
+    new_confirmed = any(
+        int(a.get("algoId", 0)) == new_stop_id and a.get("algoStatus") in ("NEW", "WORKING")
+        for a in algos
+    )
+    if not new_confirmed:
+        logger.error(f"New stop {new_stop_id} not confirmed on exchange for {symbol}")
+        # Try emergency: at least we have the old one
+        if old_stop_cid:
+            return ProtectionResult(True, False, reason=f"new unconfirmed, old={old_stop_cid} kept")
+
+    # Step 3: Cancel old version
+    if old_stop_cid:
+        old_algos = [a for a in algos if str(a.get("clientOrderId", "")) == old_stop_cid]
+        for a in old_algos:
+            cancelled = _cancel_algo(symbol, a["algoId"])
+            if not cancelled:
+                logger.warning(f"Failed to cancel old stop {old_stop_cid} — keeping both for safety")
+                # Mark reconciliation required but don't block
+                _protection_versions[key] = {"version": old_version + 1, "stop_cid": new_cid,
+                                              "reconciliation_required": True}
+                return ProtectionResult(True, False, reason=f"old stop kept, reconciliation required")
+
+    # Step 4: Update version registry
+    _protection_versions[key] = {"version": old_version + 1, "stop_cid": new_cid}
+    logger.info(f"Protection v{old_version}→v{old_version+1} for {key}: {new_stop_id}")
+
+    return ProtectionResult(True, take_profit_price is not None,
+                             stop_algo_id=new_stop_id, reason=f"versioned v{old_version+1}")
+
+
+def clear_protection_version(symbol: str, side: str):
+    """Clear version tracking when position closed."""
+    _protection_versions.pop(_pos_key(symbol, side), None)
