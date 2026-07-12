@@ -24,17 +24,16 @@ import os
 LOG_DIR = os.getenv("TRADING_LOG_DIR", "/opt/trading-bot/current/logs")
 os.makedirs(LOG_DIR, exist_ok=True)
 
-logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO"),
-    format="%(asctime)s [engine] %(levelname)s %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.handlers.RotatingFileHandler(
-            f"{LOG_DIR}/engine.log", maxBytes=5*1024*1024, backupCount=3,
-        ),
-    ],
+# 添加文件handler（basicConfig已被scalper先调用，给engine logger单独加）
+os.makedirs(LOG_DIR, exist_ok=True)
+_fh = logging.handlers.RotatingFileHandler(
+    f"{LOG_DIR}/engine.log", maxBytes=5*1024*1024, backupCount=3,
 )
+_fh.setFormatter(logging.Formatter("%(asctime)s [engine] %(levelname)s %(message)s"))
+
 logger = logging.getLogger("trading_bot.engine")
+logger.setLevel(logging.INFO)
+logger.addHandler(_fh)
 _STOP = False
 
 
