@@ -31,6 +31,7 @@ from trading_bot.exchange.market_data import fetch_ticker, fetch_klines
 from trading_bot.exchange.client import _api, IS_TESTNET, LIVE_FAPI, TESTNET_FAPI, _align_price_dir
 from trading_bot.strategy.market_regime import get_btc_environment, scan_top_coins
 from trading_bot.integrations.notifications import notify_trading_status
+from trading_bot.domain.trade_type import TradeType
 from trading_bot.strategy.regime_detector import (
     detect_regime_probabilities, get_position_confidence_factor,
 )
@@ -1299,35 +1300,38 @@ def run_scalper():
         is_range = regime in ('range', 'CHOP', 'unknown')
         if is_trend:
             if 0.20 <= pos_pct <= 0.60:
-                trade_type = 'TREND_PULLBACK'
+                trade_type = TradeType.TREND_PULLBACK
             elif pos_pct < 0.20:
-                trade_type = 'RANGE_REVERSAL'  # 低位反转
+                trade_type = TradeType.RANGE_REVERSAL  # 低位反转
             else:
-                trade_type = 'MOMENTUM_SCALP'  # 高位仅允许动量快单
+                trade_type = TradeType.MOMENTUM_SCALP  # 高位仅允许动量快单
         elif is_range:
             if pos_pct <= 0.25:
-                trade_type = 'RANGE_REVERSAL'
+                trade_type = TradeType.RANGE_REVERSAL
             elif pos_pct >= 0.75:
-                trade_type = 'RANGE_REVERSAL'
+                trade_type = TradeType.RANGE_REVERSAL
             else:
                 logger.info(f'⏭️ {sym} CHOP区间中部 pos={pos_pct:.2f} 禁止开仓')
                 continue
         else:
             # 过渡态/冷却期：只允许极值位置
             if pos_pct <= 0.20:
-                trade_type = 'RANGE_REVERSAL'
+                trade_type = TradeType.RANGE_REVERSAL
             elif pos_pct >= 0.80:
-                trade_type = 'RANGE_REVERSAL'
+                trade_type = TradeType.RANGE_REVERSAL
             else:
                 return
 
         # ─── P0-5: 按交易模式四维门槛 ───
         thresholds = {
-            'TREND_PULLBACK':    {'dir': 4.5, 'loc': 3.5, 'trig': 4.0, 'exec': 4.0},
-            'RANGE_REVERSAL':    {'dir': 3.0, 'loc': 5.0, 'trig': 4.5, 'exec': 4.0},
-            'MOMENTUM_SCALP':    {'dir': 4.5, 'loc': 3.0, 'trig': 5.5, 'exec': 5.0},
+            TradeType.TREND_PULLBACK:    {'dir': 4.5, 'loc': 3.5, 'trig': 4.0, 'exec': 4.0},
+            TradeType.RANGE_REVERSAL:    {'dir': 3.0, 'loc': 5.0, 'trig': 4.5, 'exec': 4.0},
+            TradeType.MOMENTUM_SCALP:    {'dir': 4.5, 'loc': 3.0, 'trig': 5.5, 'exec': 5.0},
         }
-        th = thresholds.get(trade_type, thresholds['TREND_PULLBACK'])
+        th = thresholds.get(trade_type, thresholds[TradeType.TREND_PULLBACK])
+
+        # 存储交易类型
+        best['trade_type'] = trade_type
 
         dir_score = best.get('dir_score', 0)
         loc_score = best.get('loc_score', 0)
@@ -1348,11 +1352,11 @@ def run_scalper():
 
         # ─── P0-4: 按交易类型止损范围 ───
         stop_rules = {
-            'TREND_PULLBACK':    {'min': 0.35, 'max': 0.90},
-            'RANGE_REVERSAL':    {'min': 0.18, 'max': 0.45},
-            'MOMENTUM_SCALP':    {'min': 0.12, 'max': 0.35},
+            TradeType.TREND_PULLBACK:    {'min': 0.35, 'max': 0.90},
+            TradeType.RANGE_REVERSAL:    {'min': 0.18, 'max': 0.45},
+            TradeType.MOMENTUM_SCALP:    {'min': 0.12, 'max': 0.35},
         }
-        stop_rule = stop_rules.get(trade_type, stop_rules['TREND_PULLBACK'])
+        stop_rule = stop_rules.get(trade_type, stop_rules[TradeType.TREND_PULLBACK])
 
         logger.info(f'  [{trade_type}] 四维: dir={dir_score:.1f} loc={loc_score:.1f} trig={trig_score:.1f} exec={exec_score:.1f} pos={pos_pct:.2f} stop={stop_rule["min"]:.2f}-{stop_rule["max"]:.2f}%')
 

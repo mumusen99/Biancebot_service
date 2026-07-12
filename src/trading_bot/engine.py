@@ -16,6 +16,7 @@ from trading_bot.data.ws_market_client import ws_client, market_cache
 from trading_bot.strategy.candidate_pool import candidate_pool
 from trading_bot.risk.rate_limiter import traffic_monitor
 from trading_bot.execution.execution_priority_queue import execution_queue, latency_tracker
+from trading_bot.execution.position_supervisor import PositionSupervisor
 from trading_bot.strategy.incremental_features import feature_store
 
 logging.basicConfig(
@@ -66,6 +67,9 @@ def run() -> None:
 
     logger.info("engine starting (WS+REST hybrid mode)")
 
+    # Supervisor 接管所有持仓监控
+    supervisor = PositionSupervisor(None)
+
     # 异步启动 WS（不阻塞主循环）
     ws_thread = threading.Thread(target=_start_ws, daemon=True)
     ws_thread.start()
@@ -79,159 +83,23 @@ def run() -> None:
         # ── 处理执行队列（最高优先级，每次循环都处理）──
         execution_queue.process_all(max_count=5)
 
-        # ── 分段止盈 + 移动止损（每次循环，WS实时价格）──
+        # ── 分段止盈 + 移动止损（委托给 PositionSupervisor）──
         try:
             from trading_bot.services.position_manager import load_bot_state, save_bot_state, market_close_position as _mcp
+            from trading_bot.integrations.notifications import notify_exit
+            from trading_bot.strategy.scalper import record_trade_result
             state = load_bot_state()
-            changed = False
-            for key, pos in state.get('positions', {}).items():
-                # 有entry_price就检查，不依赖status（state可能被覆盖成closed）
-                sym = pos.get('symbol', '')
-                side = pos.get('side', 'LONG')
-                entry = float(pos.get('entry_price', 0))
-                if entry <= 0:
-                    continue
-                bt = market_cache.get_book_ticker(sym)
-                if not bt:
-                    price = float(pos.get('current_price', 0) or pos.get('entry_price', 0))
-                    if price <= 0:
-                        continue
-                else:
-                    price = (bt['b'] + bt['a']) / 2
-                # 初始化分段参数
-                orig_qty = float(pos.get('original_qty') or pos.get('qty', 0))
-                cur_qty = float(pos.get('qty', orig_qty))
-                # 检查所有交易所持仓（不依赖status字段）
-                sl = float(pos.get('sl_price', 0) or 0)
-                if loop_count % 60 == 0:
-                    logger.info(f'[监控] {sym} price={price:.5f} sl={sl:.5f} qty={cur_qty}')
-                if sl <= 0:
-                    sym_entry = float(pos.get('entry_price', 0))
-                    if sym_entry <= 0:
-                        continue
-                    if side == 'LONG':
-                        sl = round(sym_entry * 0.995, 8)
-                    else:
-                        sl = round(sym_entry * 1.005, 8)
-                    pos['sl_price'] = sl
-                
-                risk_dist = entry - sl if side == 'LONG' else sl - entry  # R
-                if risk_dist <= 0:
-                    continue
-                
-                tp1 = round(entry + 1.0 * risk_dist if side == 'LONG' else entry - 1.0 * risk_dist, 8)
-                tp2 = round(entry + 1.5 * risk_dist if side == 'LONG' else entry - 1.5 * risk_dist, 8)
-                tp3 = round(entry + 2.5 * risk_dist if side == 'LONG' else entry - 2.5 * risk_dist, 8)
-
-                pos['tp1_price'] = tp1; pos['tp2_price'] = tp2; pos['tp3_price'] = tp3
-                pos['original_qty'] = orig_qty
-                
-                # --- 止损（需连续2次确认防插针）---
-                hit_sl = (side == 'LONG' and price <= sl) or (side == 'SHORT' and price >= sl)
-                old_sl = int(pos.get('_sl_confirm', 0))
-                sl_conf = old_sl + 1 if hit_sl else 0
-                if sl_conf != old_sl:
-                    pos['_sl_confirm'] = sl_conf; changed = True
-                if sl_conf >= 2:
-                    logger.warning(f'🛑 止损确认: {sym} price={price} sl={sl} (连续{sl_conf}次)')
-                    if _mcp(sym, side, cur_qty):
-                        try:
-                            from trading_bot.integrations.notifications import notify_exit
-                            from trading_bot.strategy.scalper import record_trade_result
-                            pnl = (price - entry) * cur_qty if side == 'LONG' else (entry - price) * cur_qty
-                            record_trade_result(pnl)
-                            notify_exit(sym, side, price, pnl, f'止损@{sl}')
-                        except Exception: pass
-                        pos['status'] = 'closed'; changed = True; continue
-                    else:
-                        pos['_sl_confirm'] = 1  # 下次重试，不重复确认
-                
-                # --- TP1: 50%（连续2次确认）---
-                if not pos.get('tp1_hit'):
-                    hit = (side == 'LONG' and price >= tp1) or (side == 'SHORT' and price <= tp1)
-                    old_c = int(pos.get('_tp1_confirm', 0))
-                    c = old_c + 1 if hit else 0
-                    if c != old_c:
-                        pos['_tp1_confirm'] = c; changed = True
-                    if c >= 2:
-                        qty1 = max(1, int(orig_qty * 0.50))
-                        logger.warning(f'🎯 TP1: {sym} 50%({qty1}) @ {price}')
-                        if _mcp(sym, side, qty1):
-                            pos['tp1_hit'] = True
-                        pos['qty'] = cur_qty - qty1
-                        pos['trailing_active'] = True
-                        pos['highest_price'] = price
-                        changed = True
-                        cur_qty = pos['qty']
-                        if cur_qty <= 0:
-                            try:
-                                from trading_bot.integrations.notifications import notify_exit
-                                from trading_bot.strategy.scalper import record_trade_result
-                                pnl = (price - entry) * orig_qty if side == 'LONG' else (entry - price) * orig_qty
-                                record_trade_result(pnl)
-                                notify_exit(sym, side, price, pnl, 'TP1全平')
-                            except Exception: pass
-                            pos['status'] = 'closed'; continue
-                
-                # --- TP2: 30%（连续2次确认）---
-                if not pos.get('tp2_hit'):
-                    hit = (side == 'LONG' and price >= tp2) or (side == 'SHORT' and price <= tp2)
-                    old_c2 = int(pos.get('_tp2_confirm', 0))
-                    c2 = old_c2 + 1 if hit else 0
-                    if c2 != old_c2:
-                        pos['_tp2_confirm'] = c2; changed = True
-                    if c2 >= 2:
-                        qty2 = max(1, int(orig_qty * 0.30))
-                        logger.warning(f'🎯 TP2: {sym} 30%({qty2}) @ {price}')
-                        if _mcp(sym, side, qty2):
-                            pos['tp2_hit'] = True
-                        pos['qty'] = max(0, cur_qty - qty2)
-                        changed = True
-                        cur_qty = pos['qty']
-                        if cur_qty <= 0:
-                            try:
-                                from trading_bot.integrations.notifications import notify_exit
-                                from trading_bot.strategy.scalper import record_trade_result
-                                pnl = (price - entry) * orig_qty if side == 'LONG' else (entry - price) * orig_qty
-                                record_trade_result(pnl)
-                                notify_exit(sym, side, price, pnl, 'TP2全平')
-                            except Exception: pass
-                            pos['status'] = 'closed'; continue
-                
-                # --- Runner 移动止损（激活点=TP3@1.8R，回撤0.5R平仓）---
-                trail_activate = tp3
-                trail_dist = round(risk_dist * 0.5, 8)
-                if pos.get('trailing_active') or (side == 'LONG' and price >= trail_activate) or (side == 'SHORT' and price <= trail_activate):
-                    pos['trailing_active'] = True
-                    highest = float(pos.get('highest_price', price))
-                    if (side == 'LONG' and price > highest) or (side == 'SHORT' and price < highest):
-                        pos['highest_price'] = price
-                        highest = price
-                        pos['_trail_confirm'] = 0; changed = True
-                    hit_trail = (side == 'LONG' and price <= highest - trail_dist) or (side == 'SHORT' and price >= highest + trail_dist)
-                    old_tc = int(pos.get('_trail_confirm', 0))
-                    tc = old_tc + 1 if hit_trail else 0
-                    if tc != old_tc:
-                        pos['_trail_confirm'] = tc; changed = True
-                    if tc >= 2:
-                        runner_qty = float(pos.get('qty', cur_qty))
-                        logger.warning(f'🏃 移动止损: {sym} 从最高{highest}回落至{price} (剩余{runner_qty}张)')
-                        if _mcp(sym, side, runner_qty):
-                            try:
-                                from trading_bot.integrations.notifications import notify_exit
-                                from trading_bot.strategy.scalper import record_trade_result
-                                pnl = (price - entry) * runner_qty if side == 'LONG' else (entry - price) * runner_qty
-                                record_trade_result(pnl)
-                                notify_exit(sym, side, price, pnl, f'移动止损 最高{highest}')
-                            except Exception: pass
-                            pos['status'] = 'closed'; changed = True
-                        else:
-                            pos['_trail_confirm'] = 1
-            
-            if changed:
-                save_bot_state(state)
+            decisions, state = supervisor.evaluate_all(state)
+            for d in decisions:
+                if _mcp(d.symbol, d.side, d.qty):
+                    try:
+                        record_trade_result(d.pnl)
+                        notify_exit(d.symbol, d.side, d.price, d.pnl, f'{d.action}')
+                    except Exception:
+                        pass
+            save_bot_state(state)
         except Exception:
-            pass
+            logger.exception("position supervisor cycle failed")
 
         # ── 持仓管理（间隔从 runtime 读取）──
         manage_interval = int(runtime_cfg.get("engine", {}).get("manage_interval_seconds", 10))
