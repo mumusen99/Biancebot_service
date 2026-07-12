@@ -1,7 +1,0 @@
-risk:
-  max_positions: 3
-  max_daily_loss_usdt: 5.0
-  max_consecutive_losses: 4
-  cooldown_minutes: 30
-  per_trade_risk_pct: 0.2
-  correlation_limit: 0.7

@@ -1,4 +1,0 @@
-app:
-  mode: "live"  # live | testnet | dry_run
-  log_level: "INFO"
-  data_dir: "/opt/trading-bot/shared"

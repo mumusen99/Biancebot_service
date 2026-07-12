@@ -1,6 +1,0 @@
-exchange:
-  environment: "auto"  # auto = from TRADING_ENV env var
-  connect_timeout: 10
-  read_timeout: 30
-  retry_count: 3
-  proxy: ""
