@@ -65,6 +65,13 @@ class PositionSupervisor:
         if risk_dist <= 0:
             return ExitDecision.hold()
 
+        # ── Cost floor: SL must cover at least 2x estimated costs (0.04% per side) ──
+        cost_floor = entry * 0.0008  # 0.08% round-trip
+        if risk_dist < cost_floor and risk_dist > 0:
+            sl = round(entry - cost_floor if side == 'LONG' else entry + cost_floor, 8)
+            pos['sl_price'] = sl
+            risk_dist = cost_floor
+
         # ── SL check (2-confirm) ──
         hit_sl = (side == 'LONG' and price <= sl) or (side == 'SHORT' and price >= sl)
         old_sl = int(pos.get('_sl_confirm', 0))
@@ -77,7 +84,10 @@ class PositionSupervisor:
             return ExitDecision(sym, side, "SL", price, cur_qty, pnl)
 
         # ── TP1 (50%) ──
-        tp1 = round(entry + 1.0 * risk_dist if side == 'LONG' else entry - 1.0 * risk_dist, 8)
+        tp1_raw = 1.0 * risk_dist
+        tp1_min = cost_floor * 2.5  # TP1 must cover at least 2.5x costs
+        tp1_dist = max(tp1_raw, tp1_min)
+        tp1 = round(entry + tp1_dist if side == 'LONG' else entry - tp1_dist, 8)
         if not pos.get('tp1_hit'):
             hit = (side == 'LONG' and price >= tp1) or (side == 'SHORT' and price <= tp1)
             old_c = int(pos.get('_tp1_confirm', 0))
@@ -134,6 +144,21 @@ class PositionSupervisor:
                 logger.warning(f'🏃 Trail: {sym} from {highest} to {price}')
                 pos['qty'] = 0
                 return ExitDecision(sym, side, "TRAIL", price, runner_qty, pnl)
+
+        # ── Time stop ──
+        from datetime import datetime, timezone
+        opened_str = pos.get('opened_at', '')
+        if opened_str:
+            try:
+                opened_dt = datetime.fromisoformat(opened_str)
+                held = (datetime.now(timezone.utc) - opened_dt).total_seconds()
+                mfe = float(pos.get('mfe', 0) or 0)
+                if held > 1500 and mfe < entry * cur_qty * 0.0015:
+                    pnl = (price - entry) * cur_qty if side == 'LONG' else (entry - price) * cur_qty
+                    logger.warning(f'⏰ TIME: {sym} held={held:.0f}s mfe={mfe:.4f}')
+                    return ExitDecision(sym, side, "TIME", price, cur_qty, pnl)
+            except Exception:
+                pass
 
         return ExitDecision.hold()
 
