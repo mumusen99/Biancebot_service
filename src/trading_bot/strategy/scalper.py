@@ -563,6 +563,19 @@ def scan_signals() -> tuple:
             trend_down = ema9 < ema21
             vol_ratio = vol / vol_avg if vol_avg > 0 else 1
             ema_dist_pct = abs(close - ema9) / ema9 * 100
+
+            # ─── 15m vol 参考 ───
+            try:
+                df_15m = _fetch_klines_ws(sym, '15m', 30)
+                if df_15m is not None and len(df_15m) >= 5:
+                    vol_15m = float(df_15m.iloc[-1].get('volume', 0))
+                    vol_15m_avg = float(df_15m['volume'].tail(20).mean()) if len(df_15m) >= 20 else vol_15m
+                    vol_15m_ratio = vol_15m / max(vol_15m_avg, 1)
+                else:
+                    vol_15m_ratio = 1.0
+            except Exception:
+                vol_15m_ratio = 1.0
+
             cfg = _ENTRY_CFG
 
             # ─── 硬拒绝 + 防追高 ───
@@ -775,6 +788,16 @@ def scan_signals() -> tuple:
                 score += 1.5
             elif vol_ratio >= cfg['vol_reject']:
                 score += 1.0
+
+            # 5b. 15m vol 参考 (max ±1.0)
+            if vol_15m_ratio > 1.5:
+                score += 1.0   # 15m 放量，市场活跃
+            elif vol_15m_ratio > 1.2:
+                score += 0.5
+            elif vol_15m_ratio < 0.4:
+                score -= 1.0   # 15m 缩量，冷清市场扣分
+            elif vol_15m_ratio < 0.6:
+                score -= 0.5
 
             # 6. BTC环境 (max 1.5)
             if side == 'LONG' and bias >= 4: score += 1.5
