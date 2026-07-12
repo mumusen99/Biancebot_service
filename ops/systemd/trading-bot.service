@@ -1,0 +1,27 @@
+[Unit]
+Description=Trading Bot Live Single Process
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/trading-bot/current
+EnvironmentFile=/etc/trading-bot/live.env
+Environment=PYTHONPATH=/opt/trading-bot/current/src
+Environment=TRADING_ENV=live
+Environment=LIVE_TRADING_ACK=I_UNDERSTAND_THIS_SENDS_REAL_ORDERS
+Environment=TRADING_STATE_DIR=/opt/trading-bot/shared/state
+Environment=TRADING_LOG_DIR=/opt/trading-bot/shared/logs
+Environment=TRADING_RUNTIME_CONFIG=/opt/trading-bot/shared/config/runtime.yaml
+Environment=TRADING_HARD_LIMITS=/opt/trading-bot/shared/config/hard_limits.yaml
+ExecStart=/opt/trading-bot/current/.venv/bin/python main.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

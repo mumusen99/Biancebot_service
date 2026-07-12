@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$ROOT"
+export PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
+python3 -m compileall -q src main.py
+python3 -c 'from trading_bot.core.runtime_config import get_runtime_config; print(get_runtime_config(force=True))'
+python3 -c 'import trading_bot.engine; import trading_bot.strategy.scalper; import trading_bot.services.position_manager'

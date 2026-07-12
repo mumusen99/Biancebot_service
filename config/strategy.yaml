@@ -1,0 +1,6 @@
+strategy:
+  enabled: true
+  scan_interval_seconds: 30
+  manage_interval_seconds: 10
+  candidate_max: 20
+  universe_size: 100

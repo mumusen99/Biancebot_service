@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+import sys
+from pathlib import Path
+ROOT=Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "src"))
+from trading_bot.core.runtime_config import apply_candidate
+if len(sys.argv)!=2: raise SystemExit("usage: trading-config-apply candidate.yaml")
+print(apply_candidate(Path(sys.argv[1])))

@@ -1,0 +1,13 @@
+#!/usr/bin/env python3
+import json, sys
+from pathlib import Path
+ROOT=Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "src"))
+from trading_bot.core.runtime_config import get_runtime_config
+out={"mode":"LIVE","runtime_config":get_runtime_config(),"service":"unknown"}
+state=ROOT/"state"/"bot_state.json"
+if state.exists():
+    try:
+        data=json.loads(state.read_text(encoding="utf-8")); out["positions"]=len(data.get("positions",{})); out["total_pnl"]=data.get("total_pnl",0)
+    except Exception as exc: out["state_error"]=str(exc)
+print(json.dumps(out,ensure_ascii=False,indent=2))

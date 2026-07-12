@@ -1,0 +1,17 @@
+version: 1
+updated_by: baseline
+updated_at: ""
+reason: "initial optimized structure"
+engine:
+  scan_interval_seconds: 300
+  manage_interval_seconds: 30
+  market_snapshot_ttl_seconds: 45
+risk:
+  scalp_margin: 10.0
+  scalp_budget: 60.0
+  scalp_max_positions: 5
+  max_total_positions: 10
+  leverage: 3
+strategy:
+  enabled: true
+  market_structure_mode: active

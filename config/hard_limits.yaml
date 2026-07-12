@@ -1,0 +1,13 @@
+risk:
+  scalp_margin: {min: 1.0, max: 25.0}
+  scalp_budget: {min: 10.0, max: 150.0}
+  scalp_max_positions: {min: 1, max: 8}
+  max_total_positions: {min: 1, max: 12}
+  leverage: {min: 1, max: 10}
+engine:
+  scan_interval_seconds: {min: 60, max: 1800}
+  manage_interval_seconds: {min: 10, max: 300}
+protected:
+  allow_disable_stop_loss: false
+  allow_delete_all_algo_orders: false
+  allow_multiple_trade_engines: false

@@ -1,0 +1,42 @@
+# Secrets & env — NEVER commit
+.env
+*.env
+!example.env
+live.env
+/etc/trading-bot/live.env
+
+# Bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual env
+.venv/
+venv/
+
+# State files (runtime data)
+state/*.json
+!state/.gitkeep
+shared/state/*.json
+!shared/state/.gitkeep
+
+# Logs
+logs/
+*.log
+shared/logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Runtime config (contains keys)
+config/*.env
+*.lock
+/tmp/trading_bot_trade.lock
+state/*.bak
