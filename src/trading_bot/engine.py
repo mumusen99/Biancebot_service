@@ -164,8 +164,8 @@ def run() -> None:
                         cancelled += 1
                 if cancelled:
                     logger.info(f"🧹 清理完成: {cancelled}个孤儿条件单")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"🧹 孤儿清理异常: {e}")
 
         time.sleep(0.5)
 
