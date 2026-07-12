@@ -62,7 +62,7 @@ def route_trade_type(regime: str, pos_pct: float) -> Optional[str]:
         else:
             return 'MOMENTUM_SCALP'
     elif is_range:
-        if pos_pct <= 0.25 or pos_pct >= 0.75:
+        if pos_pct <= 0.20 or pos_pct >= 0.80:
             return 'RANGE_REVERSAL'
         return None  # CHOP 区间中部拒单
     else:
