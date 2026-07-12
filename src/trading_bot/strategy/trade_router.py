@@ -21,8 +21,8 @@ VALID_TYPES = (
 THRESHOLDS = {
     'TREND_PULLBACK':          {'dir': 4.5, 'loc': 3.5, 'trig': 4.0, 'exec': 4.0},
     'BREAKOUT_RETEST':         {'dir': 6.0, 'loc': 4.5, 'trig': 6.0, 'exec': 5.0},
-    'RANGE_REVERSAL':          {'dir': 4.0, 'loc': 6.5, 'trig': 5.5, 'exec': 5.0},
-    'MOMENTUM_SCALP':          {'dir': 5.5, 'loc': 4.0, 'trig': 6.5, 'exec': 6.0},
+    'RANGE_REVERSAL':          {'dir': 3.0, 'loc': 5.0, 'trig': 4.5, 'exec': 4.0},
+    'MOMENTUM_SCALP':          {'dir': 4.5, 'loc': 3.0, 'trig': 5.5, 'exec': 5.0},
     'MOMENTUM_SECOND_ENTRY':   {'dir': 5.0, 'loc': 5.0, 'trig': 6.0, 'exec': 5.5},
     'FAILED_BREAKOUT':         {'dir': 5.0, 'loc': 5.5, 'trig': 6.0, 'exec': 5.0},
 }
